@@ -128,7 +128,7 @@ func (v Value) invalidTypeError(err error, descr string) error {
 }
 
 //--------------------
-// ARRAY
+// RESULT SET
 //--------------------
 
 // ResultSet contains a number of values or nested result sets.
@@ -266,6 +266,40 @@ func (rs *ResultSet) KeyValues() (KeyValues, error) {
 	return kvs, nil
 }
 
+// ScoredValues returns the alternating values as scored values slice. If
+// withscores is false the result set contains no scores and so they are
+// set to 0.0 in the returned scored values.
+func (rs *ResultSet) ScoredValues(withscores bool) (ScoredValues, error) {
+	svs := ScoredValues{}
+	sv := ScoredValue{}
+	for index, item := range rs.items {
+		value, ok := item.(Value)
+		if !ok {
+			return nil, errors.New(ErrIllegalItemType, errorMessages, index, "value")
+		}
+		if withscores {
+			// With scores, so alternating values and scores.
+			if index%2 == 0 {
+				sv.Value = value
+			} else {
+				score, err := value.Float64()
+				if err != nil {
+					return nil, err
+				}
+				sv.Score = score
+				svs = append(svs, sv)
+				sv = ScoredValue{}
+			}
+		} else {
+			// No scores, only values.
+			sv.Value = value
+			svs = append(svs, sv)
+			sv = ScoredValue{}
+		}
+	}
+	return svs, nil
+}
+
 // Hash returns the values of the result set as hash.
 func (rs *ResultSet) Hash() (Hash, error) {
 	hash := make(Hash)
@@ -335,6 +369,38 @@ func (kvs KeyValues) String() string {
 		kvss = append(kvss, kv.String())
 	}
 	return fmt.Sprintf("[%s]", strings.Join(kvss, " / "))
+}
+
+//--------------------
+// SCORED VALUE
+//--------------------
+
+// ScoredValue helps to add a set member together with its score.
+type ScoredValue struct {
+	Score float64
+	Value Value
+}
+
+// String returs the scored value as string.
+func (sv ScoredValue) String() string {
+	return fmt.Sprintf("%v (%f)", sv.Value, sv.Score)
+}
+
+// ScoredValues is a set of ScoreValues.
+type ScoredValues []ScoredValue
+
+// Len returns the number of scored values in the set.
+func (svs ScoredValues) Len() int {
+	return len(svs)
+}
+
+// String returs the scored values as string.
+func (svs ScoredValues) String() string {
+	svss := []string{}
+	for _, sv := range svs {
+		svss = append(svss, sv.String())
+	}
+	return fmt.Sprintf("[%s]", strings.Join(svss, " / "))
 }
 
 //--------------------

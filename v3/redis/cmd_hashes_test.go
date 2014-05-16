@@ -29,33 +29,33 @@ func TestHSetGetDel(t *testing.T) {
 	conn, restore := connectDatabase(assert)
 	defer restore()
 
-	exists, err := conn.HExists("hashes:setget", "a")
+	exists, err := conn.HExists("h:setget", "a")
 	assert.Nil(err)
 	assert.False(exists)
-	added, err := conn.HSet("hashes:setget", "a", "foo")
+	added, err := conn.HSet("h:setget", "a", "foo")
 	assert.Nil(err)
 	assert.True(added)
-	exists, err = conn.HExists("hashes:setget", "a")
+	exists, err = conn.HExists("h:setget", "a")
 	assert.Nil(err)
 	assert.True(exists)
-	added, err = conn.HSet("hashes:setget", "a", "bar")
+	added, err = conn.HSet("h:setget", "a", "bar")
 	assert.Nil(err)
 	assert.False(added)
 
-	value, err := conn.HGet("hashes:setget", "a")
+	value, err := conn.HGet("h:setget", "a")
 	assert.Nil(err)
 	assert.Equal(value.String(), "bar")
-	value, err = conn.HGet("hashes:setget", "b")
+	value, err = conn.HGet("h:setget", "b")
 	assert.Nil(err)
 	assert.Nil(value)
 
-	err = conn.HSetNX("hashes:setget", "a", "foo")
+	err = conn.HSetNX("h:setget", "a", "foo")
 	assert.True(errors.IsError(err, redis.ErrCannotSetKey))
-	added, err = conn.HSet("hashes:setget", "b", "foo")
+	added, err = conn.HSet("h:setget", "b", "foo")
 	assert.Nil(err)
 	assert.True(added)
 
-	count, err := conn.HDel("hashes:setget", "a", "b", "c", "d")
+	count, err := conn.HDel("h:setget", "a", "b", "c", "d")
 	assert.Nil(err)
 	assert.Equal(count, 2)
 }
@@ -65,23 +65,23 @@ func TestHIncr(t *testing.T) {
 	conn, restore := connectDatabase(assert)
 	defer restore()
 
-	added, err := conn.HSet("hashes:incr", "a", 5)
+	added, err := conn.HSet("h:incr", "a", 5)
 	assert.Nil(err)
 	assert.True(added)
-	ival, err := conn.HIncrBy("hashes:incr", "a", 5)
+	ival, err := conn.HIncrBy("h:incr", "a", 5)
 	assert.Nil(err)
 	assert.Equal(ival, 10)
-	added, err = conn.HSet("hashes:incr", "b", 5.5)
+	added, err = conn.HSet("h:incr", "b", 5.5)
 	assert.Nil(err)
 	assert.True(added)
-	fval, err := conn.HIncrByFloat("hashes:incr", "b", -1.1)
+	fval, err := conn.HIncrByFloat("h:incr", "b", -1.1)
 	assert.Nil(err)
 	assert.Equal(fval, 4.4)
 
-	added, err = conn.HSet("hashes:incr", "c", "no number")
+	added, err = conn.HSet("h:incr", "c", "no number")
 	assert.Nil(err)
 	assert.True(added)
-	ival, err = conn.HIncrBy("hashes:incr", "c", 5)
+	ival, err = conn.HIncrBy("h:incr", "c", 5)
 	assert.True(errors.IsError(err, redis.ErrServerResponse))
 }
 
@@ -91,10 +91,10 @@ func TestHMSetGet(t *testing.T) {
 	defer restore()
 
 	h := redis.NewHash().Set("a", "foo").Set("b", 4711)
-	err := conn.HMSet("hashes:msetget", h)
+	err := conn.HMSet("h:msetget", h)
 	assert.Nil(err)
 
-	result, err := conn.HMGet("hashes:msetget", "a", "b", "c")
+	result, err := conn.HMGet("h:msetget", "a", "b", "c")
 	assert.Nil(err)
 	assert.Length(result, 3)
 	sval, err := result.StringAt(0)
@@ -114,10 +114,10 @@ func TestHGetAll(t *testing.T) {
 	defer restore()
 
 	h := redis.NewHash().Set("a", "foo").Set("b", 4711)
-	err := conn.HMSet("hashes:getall", h)
+	err := conn.HMSet("h:getall", h)
 	assert.Nil(err)
 
-	kvs, err := conn.HGetAll("hashes:getall")
+	kvs, err := conn.HGetAll("h:getall")
 	assert.Nil(err)
 	assert.Equal(kvs, h)
 }
@@ -127,22 +127,22 @@ func TestHKeysVals(t *testing.T) {
 	conn, restore := connectDatabase(assert)
 	defer restore()
 
-	added, err := conn.HSet("hashes:keysvals", "a", "foo")
+	added, err := conn.HSet("h:keysvals", "a", "foo")
 	assert.Nil(err)
 	assert.True(added)
-	added, err = conn.HSet("hashes:keysvals", "b", 4711)
+	added, err = conn.HSet("h:keysvals", "b", 4711)
 	assert.Nil(err)
 	assert.True(added)
 
-	length, err := conn.HLen("hashes:keysvals")
+	length, err := conn.HLen("h:keysvals")
 	assert.Nil(err)
 	assert.Equal(length, 2)
 
-	keys, err := conn.HKeys("hashes:keysvals")
+	keys, err := conn.HKeys("h:keysvals")
 	assert.Nil(err)
 	assert.Length(keys, 2)
 
-	values, err := conn.HVals("hashes:keysvals")
+	values, err := conn.HVals("h:keysvals")
 	assert.Nil(err)
 	assert.Length(values, 2)
 }
@@ -152,7 +152,7 @@ func TestHScan(t *testing.T) {
 	conn, restore := connectDatabase(assert)
 	defer restore()
 
-	generateHashData(assert, conn, "hashes:scan", "abcdefghij")
+	generateHashData(assert, conn, "h:scan", "abcdefghij")
 
 	assertScan := func(pattern string, count, total int) {
 		var cursor int
@@ -167,7 +167,7 @@ func TestHScan(t *testing.T) {
 		}
 
 		for {
-			cursor, result, err = conn.HScan("hashes:scan", cursor, pattern, count)
+			cursor, result, err = conn.HScan("h:scan", cursor, pattern, count)
 			assert.Nil(err)
 			all += result.Len()
 			assert.True(result.Len() <= max)

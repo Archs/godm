@@ -34,6 +34,7 @@ const (
 	ErrCannotRenameKey
 	ErrCannotSetList
 	ErrCannotTrimList
+	ErrDivergentKeyWeightLen
 	ErrReply
 	ErrInvalidType
 	ErrInvalidKey
@@ -58,6 +59,7 @@ var errorMessages = errors.Messages{
 	ErrCannotRenameKey:        "cannot rename key %q",
 	ErrCannotSetList:          "cannot set list %q at index %d",
 	ErrCannotTrimList:         "cannot trim list %q between %d and %d",
+	ErrDivergentKeyWeightLen:  "numbers of keys and weights diverge",
 	ErrReply:                  "invalid reply, length is %v",
 	ErrInvalidType:            "invalid type conversion of \"%v\" to %q: %v",
 	ErrInvalidKey:             "invalid key %q",
