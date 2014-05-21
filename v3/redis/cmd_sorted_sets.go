@@ -227,6 +227,39 @@ func (conn *Connection) ZRemRangeByScore(key string, min, max float64, incl Incl
 	return result.IntAt(0)
 }
 
+// ZRevRange returns the specified range of elements in the sorted set stored
+// at key in a reverse order.
+func (conn *Connection) ZRevRange(key string, start, stop int, withscores bool) (ScoredValues, error) {
+	args := []interface{}{key, start, stop}
+	if withscores {
+		args = append(args, "withscores")
+	}
+	result, err := conn.Command("zrevrange", args...)
+	if err != nil {
+		return nil, err
+	}
+	return result.ScoredValues(withscores)
+}
+
+// ZRevRangeByScore returns all the elements in the sorted set at key with a score between min and max
+// (including elements with score equal to min or max). The elements are considered to be ordered from
+// high to low scores.
+func (conn *Connection) ZRevRangeByScore(key string, max, min float64, incl Inclusive, withscores bool, offset, count int) (ScoredValues, error) {
+	smax, smin := inclScore(max, min, incl)
+	args := []interface{}{key, smax, smin}
+	if withscores {
+		args = append(args, "withscores")
+	}
+	if count > -1 {
+		args = append(args, "limit", offset, count)
+	}
+	result, err := conn.Command("zrevrangebyscore", args...)
+	if err != nil {
+		return nil, err
+	}
+	return result.ScoredValues(withscores)
+}
+
 //--------------------
 // HELPER
 //--------------------

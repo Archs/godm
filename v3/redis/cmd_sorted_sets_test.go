@@ -110,11 +110,25 @@ func TestZInterStore(t *testing.T) {
 		card, err := conn.ZInterStore(test.key, []string{"z:inter:a", "z:inter:b", "z:inter:c"}, test.weights, test.aggregate)
 		assert.Nil(err)
 		assert.Equal(card, test.card)
+		// ZRange.
 		scoredValues, err := conn.ZRange(test.key, 0, -1, true)
 		assert.Nil(err)
 		assert.Length(scoredValues, test.card)
 		for i, value := range scoredValues {
 			assert.Equal(value.Score, test.expected(i))
+		}
+		scoredValues, err = conn.ZRange(test.key, 0, -1, false)
+		assert.Nil(err)
+		assert.Length(scoredValues, test.card)
+		for _, value := range scoredValues {
+			assert.Equal(value.Score, 0.0)
+		}
+		// ZRevRange.
+		scoredValues, err = conn.ZRevRange(test.key, 0, -1, true)
+		assert.Nil(err)
+		assert.Length(scoredValues, test.card)
+		for i, value := range scoredValues {
+			assert.Equal(value.Score, test.expected(len(scoredValues)-1-i))
 		}
 		scoredValues, err = conn.ZRange(test.key, 0, -1, false)
 		assert.Nil(err)
@@ -187,13 +201,32 @@ func TestZRank(t *testing.T) {
 	card, err := conn.ZCard("z:rank")
 	assert.Nil(err)
 	assert.Equal(card, 4)
+}
 
-	removed, err = conn.ZRemRangeByScore("z:rank", 7, 8, redis.InclusiveBoth)
+func TestZScore(t *testing.T) {
+	assert := asserts.NewTestingAssertion(t, true)
+	conn, restore := connectDatabase(assert)
+	defer restore()
+
+	conn.ZAdd("z:score", 1, "a", 2, "b", 3, "c", 4, "d")
+	conn.ZAdd("z:score", 5, "e", 6, "f", 7, "g", 8, "h")
+
+	scoredValues, err := conn.ZRangeByScore("z:score", 2, 7, redis.InclusiveBoth, true, 0, -1)
+	assert.Nil(err)
+	assert.Length(scoredValues, 6)
+	assert.True(scoredValues[0].Score < scoredValues[1].Score)
+
+	scoredValues, err = conn.ZRevRangeByScore("z:score", 7, 2, redis.InclusiveBoth, true, 0, -1)
+	assert.Nil(err)
+	assert.Length(scoredValues, 6)
+	assert.True(scoredValues[0].Score > scoredValues[1].Score)
+
+	removed, err := conn.ZRemRangeByScore("z:score", 7, 8, redis.InclusiveBoth)
 	assert.Nil(err)
 	assert.Equal(removed, 2)
-	card, err = conn.ZCard("z:rank")
+	card, err := conn.ZCard("z:score")
 	assert.Nil(err)
-	assert.Equal(card, 2)
+	assert.Equal(card, 6)
 }
 
 //--------------------
