@@ -28,10 +28,10 @@ func TestUnixSocketConnection(t *testing.T) {
 	conn, restore := connectDatabase(assert, redis.UnixConnection("", 0))
 	defer restore()
 
-	result, err := conn.Command("echo", "Hello, World!")
+	result, err := conn.Do("echo", "Hello, World!")
 	assert.Nil(err)
 	assertEqualString(assert, result, 0, "Hello, World!")
-	result, err = conn.Command("ping")
+	result, err = conn.Do("ping")
 	assert.Nil(err)
 	assertEqualString(assert, result, 0, "PONG")
 }
@@ -42,7 +42,7 @@ func BenchmarkUnixConnection(b *testing.B) {
 	defer restore()
 
 	for i := 0; i < b.N; i++ {
-		result, err := conn.Command("ping")
+		result, err := conn.Do("ping")
 		assert.Nil(err)
 		assertEqualString(assert, result, 0, "PONG")
 	}
@@ -53,10 +53,10 @@ func TestTcpConnection(t *testing.T) {
 	conn, restore := connectDatabase(assert, redis.TcpConnection("", 0))
 	defer restore()
 
-	result, err := conn.Command("echo", "Hello, World!")
+	result, err := conn.Do("echo", "Hello, World!")
 	assert.Nil(err)
 	assertEqualString(assert, result, 0, "Hello, World!")
-	result, err = conn.Command("ping")
+	result, err = conn.Do("ping")
 	assert.Nil(err)
 	assertEqualString(assert, result, 0, "PONG")
 }
@@ -67,10 +67,42 @@ func BenchmarkTcpConnection(b *testing.B) {
 	defer restore()
 
 	for i := 0; i < b.N; i++ {
-		result, err := conn.Command("ping")
+		result, err := conn.Do("ping")
 		assert.Nil(err)
 		assertEqualString(assert, result, 0, "PONG")
 	}
+}
+
+func TestPublishedValues(t *testing.T) {
+	assert := asserts.NewTestingAssertion(t, true)
+	pvs := redis.NewPublishedValues()
+
+	rsMaker := func(channel, value string) *redis.ResultSet {
+		rs := redis.NewResultSet()
+		redis.AppendValue(rs, "message")
+		redis.AppendValue(rs, channel)
+		redis.AppendValue(rs, value)
+		return rs
+	}
+
+	go func() {
+		err := pvs.Enqueue(rsMaker("dummy", "foo"))
+		assert.Nil(err)
+		err = pvs.Enqueue(rsMaker("bummy", "bar"))
+		assert.Nil(err)
+		err = pvs.Enqueue(rsMaker("yummy", "baz"))
+		assert.Nil(err)
+	}()
+
+	pv := pvs.Dequeue()
+	assert.Equal(pv.Channel, "dummy")
+	assert.Equal(pv.Value.String(), "foo")
+	pv = pvs.Dequeue()
+	assert.Equal(pv.Channel, "bummy")
+	assert.Equal(pv.Value.String(), "bar")
+	pv = pvs.Dequeue()
+	assert.Equal(pv.Channel, "yummy")
+	assert.Equal(pv.Value.String(), "baz")
 }
 
 //--------------------
@@ -95,12 +127,29 @@ func connectDatabase(assert asserts.Assertion, options ...redis.Option) (*redis.
 	assert.Nil(err)
 	conn, err := db.Connection()
 	assert.Nil(err)
-	// Flush all keys to get a client testing environment.
-	_, err = conn.Command("flushdb")
+	// Flush all keys to get a clean testing environment.
+	_, err = conn.Do("flushdb")
 	assert.Nil(err)
 	// Return connection and cleanup function.
 	return conn, func() {
 		conn.Return()
+		db.Close()
+	}
+}
+
+// subscribeDatabase connects to a Redis database with the given options
+// and returns a subscription and a function for closing. This function
+// shall be called with a defer.
+func subscribeDatabase(assert asserts.Assertion, options ...redis.Option) (*redis.Subscription, func()) {
+	// Open and connect database.
+	options = append(options, redis.Index(testDatabaseIndex, ""))
+	db, err := redis.Open(options...)
+	assert.Nil(err)
+	sub, err := db.Subscription()
+	assert.Nil(err)
+	// Return connection and cleanup function.
+	return sub, func() {
+		sub.Close()
 		db.Close()
 	}
 }

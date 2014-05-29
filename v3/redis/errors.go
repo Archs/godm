@@ -22,50 +22,34 @@ import (
 // Error codes.
 const (
 	ErrInvalidConfiguration = iota
-	ErrConnectionClosed
-	ErrConnectionsInUse
+	ErrPoolLimitReached
 	ErrConnectionEstablishing
-	ErrUnexpectedRequest
-	ErrUnexpectedReply
-	ErrCommunication
+	ErrConnectionBroken
+	ErrInvalidResponse
 	ErrServerResponse
-	ErrKeyNotFound
-	ErrCannotSetKey
-	ErrCannotRenameKey
-	ErrCannotSetList
-	ErrCannotTrimList
-	ErrDivergentKeyWeightLen
-	ErrReply
+	ErrTimeout
+	ErrAuthenticate
+	ErrSelectDatabase
+	ErrUseSubscription
 	ErrInvalidType
 	ErrInvalidKey
-	ErrTimeout
-	ErrInvalidResponse
-	ErrInvalidResultCount
 	ErrIllegalItemIndex
 	ErrIllegalItemType
 )
 
 var errorMessages = errors.Messages{
 	ErrInvalidConfiguration:   "invalid configuration value in field %q: %v",
-	ErrConnectionClosed:       "connection closed",
-	ErrConnectionsInUse:       "all %d configured connections in use",
+	ErrPoolLimitReached:       "connection pool limit reached",
 	ErrConnectionEstablishing: "cannot establish connection",
-	ErrUnexpectedRequest:      "unexpected request: %v",
-	ErrUnexpectedReply:        "unexpected reply: %v",
-	ErrCommunication:          "cannot communicate with server: %v",
+	ErrConnectionBroken:       "connection is broken",
+	ErrInvalidResponse:        "invalid server response: %q",
 	ErrServerResponse:         "server responded error: %v",
-	ErrKeyNotFound:            "key %q not found",
-	ErrCannotSetKey:           "cannot set key %q",
-	ErrCannotRenameKey:        "cannot rename key %q",
-	ErrCannotSetList:          "cannot set list %q at index %d",
-	ErrCannotTrimList:         "cannot trim list %q between %d and %d",
-	ErrDivergentKeyWeightLen:  "numbers of keys and weights diverge",
-	ErrReply:                  "invalid reply, length is %v",
-	ErrInvalidType:            "invalid type conversion of \"%v\" to %q: %v",
-	ErrInvalidKey:             "invalid key %q",
 	ErrTimeout:                "timeout waiting for the response after command %q",
-	ErrInvalidResponse:        "invalid server response: %v",
-	ErrInvalidResultCount:     "result count does not match: %d <> %d",
+	ErrAuthenticate:           "cannot authenticate",
+	ErrSelectDatabase:         "cannot select database",
+	ErrUseSubscription:        "use subscription type for subscriptions",
+	ErrInvalidType:            "invalid type conversion of \"%v\" to %q",
+	ErrInvalidKey:             "invalid key %q",
 	ErrIllegalItemIndex:       "item index %d is illegal for result set size %d",
 	ErrIllegalItemType:        "item at index %d is no %s",
 }

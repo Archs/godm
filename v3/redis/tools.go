@@ -115,70 +115,6 @@ func buildInterfaces(values ...interface{}) []interface{} {
 	return ifcs
 }
 
-// buildLengthPart creates the length part of a command.
-func buildLengthPart(args []interface{}) []byte {
-	length := 1
-	for _, arg := range args {
-		switch typedArg := arg.(type) {
-		case valuer:
-			length += typedArg.Len()
-		case Hash:
-			length += typedArg.Len() * 2
-		case Hashable:
-			length += typedArg.Len() * 2
-		default:
-			length++
-		}
-	}
-	return join("*", length, "\r\n")
-}
-
-// buildValuePart creates one value part of a command.
-func buildValuePart(value interface{}) []byte {
-	var raw []byte
-	if v, ok := value.(Value); ok {
-		raw = []byte(v)
-	} else {
-		raw = valueToBytes(value)
-	}
-	return join("$", len(raw), "\r\n", raw, "\r\n")
-}
-
-// buildArgumentsPart creates the the arguments parts of a command.
-func buildArgumentsPart(args []interface{}) []byte {
-	buildValuesPart := func(vs valuer) []byte {
-		tmp := []byte{}
-		for _, value := range vs.Values() {
-			tmp = append(tmp, buildValuePart(value)...)
-		}
-		return tmp
-	}
-	buildHashPart := func(h Hash) []byte {
-		tmp := []byte{}
-		for key, value := range h {
-			tmp = append(tmp, buildValuePart(key)...)
-			tmp = append(tmp, buildValuePart(value)...)
-		}
-		return tmp
-	}
-	tmp := []byte{}
-	part := []byte{}
-	for _, arg := range args {
-		switch typedArg := arg.(type) {
-		case valuer:
-			part = buildValuesPart(typedArg)
-		case Hash:
-			part = buildHashPart(typedArg)
-		case Hashable:
-			part = buildHashPart(typedArg.GetHash())
-		default:
-			part = buildValuePart(arg)
-		}
-		tmp = append(tmp, part...)
-	}
-	return tmp
-}
-
 // containsPatterns checks, if the channel contains a pattern
 // to subscribe to or unsubscribe from multiple channels.
 func containsPattern(channel interface{}) bool {
@@ -221,20 +157,6 @@ func logCommand(cmd string, args []interface{}, result *ResultSet, err error, lo
 	} else if log {
 		logger.Infof(logOutput())
 	}
-}
-
-// checkOK checks if the results are simply "OK", the standard reply
-// of Redis on successful operations. In case it is not ok the according
-// error is generated.
-func checkOK(result *ResultSet, code int, args ...interface{}) error {
-	ok, err := result.StringAt(0)
-	if err != nil {
-		return errors.Annotate(err, code, errorMessages, args...)
-	}
-	if ok != "OK" {
-		return errors.New(code, errorMessages, args...)
-	}
-	return nil
 }
 
 // EOF

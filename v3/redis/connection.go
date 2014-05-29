@@ -12,13 +12,9 @@ package redis
 //--------------------
 
 import (
-	"bufio"
-	"net"
 	"strings"
-	"sync"
 
 	"github.com/tideland/goas/v2/identifier"
-	"github.com/tideland/goas/v2/loop"
 	"github.com/tideland/goas/v2/monitoring"
 	"github.com/tideland/goas/v3/errors"
 )
@@ -29,69 +25,162 @@ import (
 
 // Connection manages one connection to a Redis database.
 type Connection struct {
-	mux      sync.Mutex
 	database *Database
-	state    state
-	redis    net.Conn
-	requests chan *requestEnv
-	receiver *receiver
-	writer   *bufio.Writer
-	loop     loop.Loop
+	resp     *RESP
 }
 
-// connect establishes a connection to a database based
-// on the passed database.
-func connect(db *Database) (*Connection, error) {
-	// Establish the connection to Redis.
-	redis, err := net.DialTimeout(db.network, db.address, db.timeout)
-	if err != nil {
-		return nil, errors.Annotate(err, ErrConnectionEstablishing, errorMessages)
-	}
-	// Create the connection instance and start
-	// its backend loop and receiver.
+// newConnection creates a new connection instance.
+func newConnection(db *Database, resp *RESP) (*Connection, error) {
 	conn := &Connection{
 		database: db,
-		state:    &idlingState{},
-		redis:    redis,
-		requests: make(chan *requestEnv),
-		receiver: newReceiver(redis),
-		writer:   bufio.NewWriter(redis),
+		resp:     resp,
 	}
-	conn.loop = loop.Go(conn.backendLoop)
 	// Perform authentication and database selection.
-	err = conn.authenticate()
+	err := conn.authenticate()
 	if err != nil {
+		conn.database.pool.kill(resp)
 		return nil, err
 	}
 	err = conn.selectDatabase()
 	if err != nil {
+		conn.database.pool.kill(resp)
 		return nil, err
 	}
 	return conn, nil
 }
 
-// Command executes one Redis command and returns
+// Do executes one Redis command and returns
 // the result as result set.
-func (conn *Connection) Command(cmd string, args ...interface{}) (*ResultSet, error) {
+func (conn *Connection) Do(cmd string, args ...interface{}) (*ResultSet, error) {
 	cmd = strings.ToLower(cmd)
 	if conn.database.monitoring {
 		m := monitoring.BeginMeasuring(identifier.Identifier("redis", "command", cmd))
 		defer m.EndMeasuring()
 	}
-	return conn.request(cmd, args, nil)
+	result, err := conn.command(cmd, args...)
+	logCommand(cmd, args, result, err, conn.database.logging)
+	return result, err
+}
+
+// DoValue executes one Redis command and returns a single value.
+func (conn *Connection) DoValue(cmd string, args ...interface{}) (Value, error) {
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result.ValueAt(0)
+}
+
+// DoOK executes one Redis command and checks if
+// it returns the OK string.
+func (conn *Connection) DoOK(cmd string, args ...interface{}) (bool, error) {
+	value, err := conn.DoValue(cmd, args...)
+	if err != nil {
+		return false, err
+	}
+	return value.IsOK(), nil
+}
+
+// DoBool executes one Redis command and interpretes
+// the result as bool value.
+func (conn *Connection) DoBool(cmd string, args ...interface{}) (bool, error) {
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return false, err
+	}
+	return result.BoolAt(0)
+}
+
+// DoInt executes one Redis command and interpretes
+// the result as int value.
+func (conn *Connection) DoInt(cmd string, args ...interface{}) (int, error) {
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.IntAt(0)
+}
+
+// DoString executes one Redis command and interpretes
+// the result as string value.
+func (conn *Connection) DoString(cmd string, args ...interface{}) (string, error) {
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return "", err
+	}
+	return result.StringAt(0)
+}
+
+// DoStrings executes one Redis command and interpretes
+// the result as a slice of strings.
+func (conn *Connection) DoStrings(cmd string, args ...interface{}) ([]string, error) {
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result.Strings(), nil
+}
+
+// DoKeyValues executes on Redis command and interpretes
+// the result as a list of keys and values.
+func (conn *Connection) DoKeyValues(cmd string, args ...interface{}) (KeyValues, error) {
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result.KeyValues()
+}
+
+// DoHash executes on Redis command and interpretes
+// the result as a hash.
+func (conn *Connection) DoHash(cmd string, args ...interface{}) (Hash, error) {
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result.Hash()
+}
+
+// DoScoredValues executes on Redis command and interpretes
+// the result as scored values.
+func (conn *Connection) DoScoredValues(cmd string, args ...interface{}) (ScoredValues, error) {
+	var withScores bool
+	for _, arg := range args {
+		if s, ok := arg.(string); ok {
+			if strings.ToLower(s) == "withscores" {
+				withScores = true
+				break
+			}
+		}
+	}
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return nil, err
+	}
+	return result.ScoredValues(withScores)
+}
+
+// DoScan executes one Redis command which should be one of the
+// scan commands. It returns the cursor and the result set containing
+// the key, values or scored values depending on the scan command.
+func (conn *Connection) DoScan(cmd string, args ...interface{}) (int, *ResultSet, error) {
+	result, err := conn.Do(cmd, args...)
+	if err != nil {
+		return 0, nil, err
+	}
+	return result.Scanned()
 }
 
 // Return passes the connection back into the database pool.
 func (conn *Connection) Return() error {
-	return conn.database.pool.push(conn)
+	return conn.database.pool.push(conn.resp)
 }
 
 // authenticate authenticates against the server if configured.
 func (conn *Connection) authenticate() error {
 	if conn.database.password != "" {
-		_, err := conn.Command("auth", conn.database.password)
+		_, err := conn.Do("auth", conn.database.password)
 		if err != nil {
-			conn.close()
 			return err
 		}
 	}
@@ -100,78 +189,53 @@ func (conn *Connection) authenticate() error {
 
 // selectDatabase selects the database.
 func (conn *Connection) selectDatabase() error {
-	_, err := conn.Command("select", conn.database.index)
+	_, err := conn.Do("select", conn.database.index)
 	if err != nil {
-		conn.close()
 		return err
 	}
 	return nil
 }
 
-// sendCommand builds and sends a command packet.
-func (conn *Connection) sendCommand(cmd string, args []interface{}) error {
-	lengthPart := buildLengthPart(args)
-	cmdPart := buildValuePart(cmd)
-	argsPart := buildArgumentsPart(args)
-
-	packet := join(lengthPart, cmdPart, argsPart)
-	_, err := conn.writer.Write(packet)
+// command sends a command to the server, receives all responses,
+// and converts them into a result set.
+func (conn *Connection) command(cmd string, args ...interface{}) (*ResultSet, error) {
+	if strings.Contains(cmd, "subscribe") {
+		return nil, errors.New(ErrUseSubscription, errorMessages)
+	}
+	err := conn.resp.send(cmd, args...)
 	if err != nil {
-		return err
-	}
-	return conn.writer.Flush()
-}
-
-// request sends a request to the backend.
-func (conn *Connection) request(cmd string, args []interface{}, publishings chan *PublishedValue) (*ResultSet, error) {
-	request := &requestEnv{cmd, args, make(chan *responseEnv), publishings}
-	select {
-	case conn.requests <- request:
-	case <-conn.loop.IsStopping():
-		_, err := conn.loop.Error()
-		err = errors.Annotate(err, ErrConnectionClosed, errorMessages)
-		logCommand(cmd, args, nil, err, conn.database.logging)
 		return nil, err
 	}
-	select {
-	case response := <-request.responses:
-		logCommand(cmd, args, response.result, response.err, conn.database.logging)
-		return response.result, response.err
-	case <-conn.loop.IsStopping():
-		_, err := conn.loop.Error()
-		err = errors.Annotate(err, ErrConnectionClosed, errorMessages)
-		logCommand(cmd, args, nil, err, conn.database.logging)
-		return nil, err
-	}
-}
-
-// close ends the connection to Redis.
-func (conn *Connection) close() error {
-	return conn.loop.Stop()
-}
-
-// backendLoop manages the state and the communication
-// of the connector.
-func (conn *Connection) backendLoop(loop loop.Loop) error {
-	defer conn.receiver.stop()
-	defer conn.redis.Close()
+	result := newResultSet()
+	current := result
 	for {
-		var request *requestEnv
-		var reply *replyEnv
-		select {
-		case <-loop.ShallStop():
-			return nil
-		case request = <-conn.requests:
-		case reply = <-conn.receiver.replies:
+		response := conn.resp.receive()
+		switch response.kind {
+		case receivingError:
+			return nil, response.err
+		case timeoutError:
+			return nil, errors.New(ErrTimeout, errorMessages, cmd)
+		case errorResponse:
+			return nil, errors.New(ErrServerResponse, errorMessages, response.value())
+		case statusResponse, integerResponse, bulkResponse, nullBulkResponse:
+			current.append(response.value())
+		case arrayResponse:
+			switch {
+			case current == result && current.Len() == 0:
+				current.length = response.length
+			case !current.allReceived():
+				next := newResultSet()
+				next.parent = current
+				current.append(next)
+				current = next
+				current.length = response.length
+			}
 		}
-		state, err := conn.state.handle(conn, request, reply)
-		if err != nil {
-			return err
+		// Check if all values are received.
+		current = current.nextResultSet()
+		if current == nil {
+			return result, nil
 		}
-		if state == nil {
-			return nil
-		}
-		conn.state = state
 	}
 }
 

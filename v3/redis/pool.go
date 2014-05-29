@@ -1,4 +1,4 @@
-// Tideland Go Data Management - Redis Client - Connection Pool
+// Tideland Go Data Management - Redis Client - RESP Pool
 //
 // Copyright (C) 2009-2014 Frank Mueller / Oldenburg / Germany
 //
@@ -26,25 +26,25 @@ const (
 	unforcedPull = false
 )
 
-// pool manages a number of Redis connections.
+// pool manages a number of Redis RESP instances.
 type pool struct {
 	mux       sync.Mutex
 	database  *Database
-	available map[*Connection]*Connection
-	inUse     map[*Connection]*Connection
+	available map[*RESP]*RESP
+	inUse     map[*RESP]*RESP
 }
 
 // newPool creates a connection pool with uninitialized
-// connections.
+// protocol instances.
 func newPool(db *Database) *pool {
 	return &pool{
 		database:  db,
-		available: make(map[*Connection]*Connection),
-		inUse:     make(map[*Connection]*Connection),
+		available: make(map[*RESP]*RESP),
+		inUse:     make(map[*RESP]*RESP),
 	}
 }
 
-// close closes all pooled connections, first the available ones,
+// close closes all pooled protocol instances, first the available ones,
 // then the ones in use.
 func (p *pool) close() error {
 	p.mux.Lock()
@@ -62,10 +62,10 @@ func (p *pool) close() error {
 	return nil
 }
 
-// pull returns a connection out of the pool. If none is available
+// pull returns a protocol out of the pool. If none is available
 // but the configured pool sized isn't reached a new one will be
 // established.
-func (p *pool) pull(forced bool) (*Connection, error) {
+func (p *pool) pull(forced bool) (*RESP, error) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	// Check if connections are available.
@@ -78,29 +78,34 @@ func (p *pool) pull(forced bool) (*Connection, error) {
 	// No connection available, so create a new one if not all
 	// in use or the creation is forced.
 	if len(p.inUse) < p.database.poolsize || forced {
-		conn, err := connect(p.database)
+		resp, err := newRESP(p.database)
 		if err != nil {
 			return nil, err
 		}
-		p.inUse[conn] = conn
-		return conn, nil
+		p.inUse[resp] = resp
+		return resp, nil
 	}
-	return nil, errors.New(ErrCannotRenameKey, errorMessages, p.database.poolsize)
+	return nil, errors.New(ErrPoolLimitReached, errorMessages, p.database.poolsize)
 }
 
-// push returns a connection back into the pool.
-func (p *pool) push(conn *Connection) error {
+// push returns a protocol back into the pool.
+func (p *pool) push(resp *RESP) error {
 	p.mux.Lock()
 	defer p.mux.Unlock()
-	// Remove from set of used connections.
-	delete(p.inUse, conn)
-	// Check if pool is full.
+	delete(p.inUse, resp)
 	if len(p.available) < p.database.poolsize {
-		p.available[conn] = conn
+		p.available[resp] = resp
 		return nil
 	}
-	// Close connection.
-	return conn.close()
+	return resp.close()
+}
+
+// kill closes the connection and removes it from the pool.
+func (p *pool) kill(resp *RESP) error {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	delete(p.inUse, resp)
+	return resp.close()
 }
 
 // EOF

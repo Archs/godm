@@ -1,0 +1,246 @@
+// Tideland Go Data Management - Redis Client - RESP
+//
+// Copyright (C) 2009-2014 Frank Mueller / Oldenburg / Germany
+//
+// All rights reserved. Use of this source code is governed
+// by the new BSD license.
+
+package redis
+
+//--------------------
+// IMPORTS
+//--------------------
+
+import (
+	"bufio"
+	"fmt"
+	"net"
+	"strconv"
+
+	"github.com/tideland/goas/v3/errors"
+)
+
+//--------------------
+// RESPONSE
+//--------------------
+
+// responseKind classifies a response of Redis.
+type responseKind int
+
+const (
+	receivingError responseKind = iota
+	timeoutError
+	statusResponse
+	errorResponse
+	integerResponse
+	bulkResponse
+	nullBulkResponse
+	arrayResponse
+)
+
+var responseKindDescr = map[responseKind]string{
+	receivingError:   "receiving error",
+	timeoutError:     "timeout error",
+	statusResponse:   "status",
+	errorResponse:    "error",
+	integerResponse:  "integer",
+	bulkResponse:     "bulk",
+	nullBulkResponse: "null-bulk",
+	arrayResponse:    "array",
+}
+
+// response contains one Redis response.
+type response struct {
+	kind   responseKind
+	length int
+	data   []byte
+	err    error
+}
+
+// value returns the data as value.
+func (r *response) value() Value {
+	return Value(r.data)
+}
+
+// errorValue returns the error as value.
+func (r *response) errorValue() Value {
+	errdata := []byte(r.err.Error())
+	return Value(errdata)
+}
+
+// String creates a string representation of the response.
+func (r *response) String() string {
+	descr := responseKindDescr[r.kind]
+	return fmt.Sprintf("RESPONSE (Kind: %s / Length: %d / Value: %v / Error: %v)", descr, r.length, r.value(), r.err)
+}
+
+//--------------------
+// REDIS SERIALIZATION PROTOCOL
+//--------------------
+
+// RESP implements the Redis Serialization Protocol.
+type RESP struct {
+	database *Database
+	conn     net.Conn
+	writer   *bufio.Writer
+	reader   *bufio.Reader
+}
+
+// newRESP establishes a connection to a Redis database
+// based on the configuration of the passed database
+// configuration.
+func newRESP(db *Database) (*RESP, error) {
+	// Dial the database and create the protocol instance.
+	conn, err := net.DialTimeout(db.network, db.address, db.timeout)
+	if err != nil {
+		return nil, errors.Annotate(err, ErrConnectionEstablishing, errorMessages)
+	}
+	resp := &RESP{
+		database: db,
+		conn:     conn,
+		writer:   bufio.NewWriter(conn),
+		reader:   bufio.NewReader(conn),
+	}
+	return resp, nil
+}
+
+// send sends a command and possible arguments to the server.
+func (r *RESP) send(cmd string, args ...interface{}) error {
+	lengthPart := r.buildLengthPart(args)
+	cmdPart := r.buildValuePart(cmd)
+	argsPart := r.buildArgumentsPart(args)
+
+	packet := join(lengthPart, cmdPart, argsPart)
+	_, err := r.writer.Write(packet)
+	if err != nil {
+		return errors.Annotate(err, ErrConnectionBroken, errorMessages)
+	}
+	return r.writer.Flush()
+}
+
+// receive retrieves a response from the server.
+func (r *RESP) receive() *response {
+	// Receive first line.
+	line, err := r.reader.ReadBytes('\n')
+	if err != nil {
+		return &response{receivingError, 0, nil, errors.Annotate(err, ErrConnectionBroken, errorMessages)}
+	}
+	content := line[1 : len(line)-2]
+	// First byte defines kind.
+	switch line[0] {
+	case '+':
+		// Status response.
+		return &response{statusResponse, 0, content, nil}
+	case '-':
+		// Error response.
+		return &response{errorResponse, 0, content, nil}
+	case ':':
+		// Integer response.
+		return &response{integerResponse, 0, content, nil}
+	case '$':
+		// Bulk response or null bulk response.
+		count, err := strconv.Atoi(string(content))
+		if err != nil {
+			return &response{receivingError, 0, nil, errors.Annotate(err, ErrServerResponse, errorMessages)}
+		}
+		if count == -1 {
+			// Null bulk response.
+			return &response{nullBulkResponse, 0, nil, nil}
+		}
+		// Receive the bulk data.
+		toRead := count + 2
+		buffer := make([]byte, toRead)
+		read := 0
+		for read < toRead {
+			n, err := r.reader.Read(buffer[read:])
+			if err != nil {
+				return &response{receivingError, 0, nil, err}
+			}
+			read += n
+		}
+		return &response{bulkResponse, 0, buffer[0:count], nil}
+	case '*':
+		// Array reply. Check for timeout.
+		length, err := strconv.Atoi(string(content))
+		if err != nil {
+			return &response{receivingError, 0, nil, errors.Annotate(err, ErrServerResponse, errorMessages)}
+		}
+		if length == -1 {
+			// Timeout.
+			return &response{timeoutError, 0, nil, nil}
+		}
+		return &response{arrayResponse, length, nil, nil}
+	}
+	return &response{receivingError, 0, nil, errors.New(ErrInvalidResponse, errorMessages, string(line))}
+}
+
+// buildLengthPart creates the length part of a command.
+func (r *RESP) buildLengthPart(args []interface{}) []byte {
+	length := 1
+	for _, arg := range args {
+		switch typedArg := arg.(type) {
+		case valuer:
+			length += typedArg.Len()
+		case Hash:
+			length += typedArg.Len() * 2
+		case Hashable:
+			length += typedArg.Len() * 2
+		default:
+			length++
+		}
+	}
+	return join("*", length, "\r\n")
+}
+
+// buildValuePart creates one value part of a command.
+func (r *RESP) buildValuePart(value interface{}) []byte {
+	var raw []byte
+	if v, ok := value.(Value); ok {
+		raw = []byte(v)
+	} else {
+		raw = valueToBytes(value)
+	}
+	return join("$", len(raw), "\r\n", raw, "\r\n")
+}
+
+// buildArgumentsPart creates the the arguments parts of a command.
+func (r *RESP) buildArgumentsPart(args []interface{}) []byte {
+	buildValuesPart := func(vs valuer) []byte {
+		tmp := []byte{}
+		for _, value := range vs.Values() {
+			tmp = append(tmp, r.buildValuePart(value)...)
+		}
+		return tmp
+	}
+	buildHashPart := func(h Hash) []byte {
+		tmp := []byte{}
+		for key, value := range h {
+			tmp = append(tmp, r.buildValuePart(key)...)
+			tmp = append(tmp, r.buildValuePart(value)...)
+		}
+		return tmp
+	}
+	tmp := []byte{}
+	part := []byte{}
+	for _, arg := range args {
+		switch typedArg := arg.(type) {
+		case valuer:
+			part = buildValuesPart(typedArg)
+		case Hash:
+			part = buildHashPart(typedArg)
+		case Hashable:
+			part = buildHashPart(typedArg.GetHash())
+		default:
+			part = r.buildValuePart(arg)
+		}
+		tmp = append(tmp, part...)
+	}
+	return tmp
+}
+
+// close ends the connection to Redis.
+func (r *RESP) close() error {
+	return r.conn.Close()
+}
+
+// EOF
