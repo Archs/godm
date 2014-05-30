@@ -44,7 +44,7 @@ var errorMessages = errors.Messages{
 	ErrConnectionBroken:       "connection is broken",
 	ErrInvalidResponse:        "invalid server response: %q",
 	ErrServerResponse:         "server responded error: %v",
-	ErrTimeout:                "timeout waiting for the response after command %q",
+	ErrTimeout:                "timeout waiting for response",
 	ErrAuthenticate:           "cannot authenticate",
 	ErrSelectDatabase:         "cannot select database",
 	ErrUseSubscription:        "use subscription type for subscriptions",

@@ -1,4 +1,4 @@
-// Tideland Go Data Management - Redis Client - RESP Pool
+// Tideland Go Data Management - Redis Client - resp Pool
 //
 // Copyright (C) 2009-2014 Frank Mueller / Oldenburg / Germany
 //
@@ -26,12 +26,12 @@ const (
 	unforcedPull = false
 )
 
-// pool manages a number of Redis RESP instances.
+// pool manages a number of Redis resp instances.
 type pool struct {
 	mux       sync.Mutex
 	database  *Database
-	available map[*RESP]*RESP
-	inUse     map[*RESP]*RESP
+	available map[*resp]*resp
+	inUse     map[*resp]*resp
 }
 
 // newPool creates a connection pool with uninitialized
@@ -39,8 +39,8 @@ type pool struct {
 func newPool(db *Database) *pool {
 	return &pool{
 		database:  db,
-		available: make(map[*RESP]*RESP),
-		inUse:     make(map[*RESP]*RESP),
+		available: make(map[*resp]*resp),
+		inUse:     make(map[*resp]*resp),
 	}
 }
 
@@ -65,7 +65,7 @@ func (p *pool) close() error {
 // pull returns a protocol out of the pool. If none is available
 // but the configured pool sized isn't reached a new one will be
 // established.
-func (p *pool) pull(forced bool) (*RESP, error) {
+func (p *pool) pull(forced bool) (*resp, error) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	// Check if connections are available.
@@ -78,7 +78,7 @@ func (p *pool) pull(forced bool) (*RESP, error) {
 	// No connection available, so create a new one if not all
 	// in use or the creation is forced.
 	if len(p.inUse) < p.database.poolsize || forced {
-		resp, err := newRESP(p.database)
+		resp, err := newresp(p.database)
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +89,7 @@ func (p *pool) pull(forced bool) (*RESP, error) {
 }
 
 // push returns a protocol back into the pool.
-func (p *pool) push(resp *RESP) error {
+func (p *pool) push(resp *resp) error {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	delete(p.inUse, resp)
@@ -101,7 +101,7 @@ func (p *pool) push(resp *RESP) error {
 }
 
 // kill closes the connection and removes it from the pool.
-func (p *pool) kill(resp *RESP) error {
+func (p *pool) kill(resp *resp) error {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 	delete(p.inUse, resp)

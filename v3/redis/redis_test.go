@@ -77,20 +77,20 @@ func TestPublishedValues(t *testing.T) {
 	assert := asserts.NewTestingAssertion(t, true)
 	pvs := redis.NewPublishedValues()
 
-	rsMaker := func(channel, value string) *redis.ResultSet {
-		rs := redis.NewResultSet()
-		redis.AppendValue(rs, "message")
-		redis.AppendValue(rs, channel)
-		redis.AppendValue(rs, value)
-		return rs
+	pvMaker := func(kind, channel, value string) *redis.PublishedValue {
+		return &redis.PublishedValue{
+			Kind:    kind,
+			Channel: channel,
+			Value:   redis.NewValue(value),
+		}
 	}
 
 	go func() {
-		err := pvs.Enqueue(rsMaker("dummy", "foo"))
+		err := pvs.Enqueue(pvMaker("message", "dummy", "foo"))
 		assert.Nil(err)
-		err = pvs.Enqueue(rsMaker("bummy", "bar"))
+		err = pvs.Enqueue(pvMaker("message", "bummy", "bar"))
 		assert.Nil(err)
-		err = pvs.Enqueue(rsMaker("yummy", "baz"))
+		err = pvs.Enqueue(pvMaker("message", "yummy", "baz"))
 		assert.Nil(err)
 	}()
 

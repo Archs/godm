@@ -380,7 +380,7 @@ func TestTransaction(t *testing.T) {
 
 }
 
-func NoTestPubSub(t *testing.T) {
+func TestPubSub(t *testing.T) {
 	assert := asserts.NewTestingAssertion(t, true)
 	conn, connRestore := connectDatabase(assert)
 	defer connRestore()
@@ -390,22 +390,29 @@ func NoTestPubSub(t *testing.T) {
 	err := sub.Subscribe("pubsub")
 	assert.Nil(err)
 	pv := sub.Pop()
-	assert.Logf("SUBSCRIBE: %v", pv)
+	assert.Equal(pv.Kind, "subscribe")
+	assert.Equal(pv.Channel, "pubsub")
+	assert.Equal(pv.Count, 1)
 
 	go func() {
 		for i := 0; i < 10; i++ {
-			assert.Logf("PUBLISH: %v", i)
-			time.Sleep(time.Second)
-			_, err := conn.DoInt("publish", "pubsub", i)
+			time.Sleep(500 * time.Millisecond)
+			receivers, err := conn.DoInt("publish", "pubsub", i)
 			assert.Nil(err)
-			// assert.Equal(receivers, 1)
+			assert.Equal(receivers, 1)
 		}
 	}()
 
+	sleep := 25 * time.Millisecond
 	for i := 0; i < 10; i++ {
-		assert.Logf("POP: %v", i)
+		time.Sleep(sleep)
 		pv := sub.Pop()
+		assert.Equal(pv.Kind, "message")
 		assert.Equal(pv.Channel, "pubsub")
+		value, err := pv.Value.Int()
+		assert.Nil(err)
+		assert.Equal(value, i)
+		sleep *= 2
 	}
 }
 

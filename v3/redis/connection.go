@@ -26,24 +26,24 @@ import (
 // Connection manages one connection to a Redis database.
 type Connection struct {
 	database *Database
-	resp     *RESP
+	resp     *resp
 }
 
 // newConnection creates a new connection instance.
-func newConnection(db *Database, resp *RESP) (*Connection, error) {
+func newConnection(db *Database, r *resp) (*Connection, error) {
 	conn := &Connection{
 		database: db,
-		resp:     resp,
+		resp:     r,
 	}
 	// Perform authentication and database selection.
 	err := conn.authenticate()
 	if err != nil {
-		conn.database.pool.kill(resp)
+		conn.database.pool.kill(r)
 		return nil, err
 	}
 	err = conn.selectDatabase()
 	if err != nil {
-		conn.database.pool.kill(resp)
+		conn.database.pool.kill(r)
 		return nil, err
 	}
 	return conn, nil
@@ -57,7 +57,14 @@ func (conn *Connection) Do(cmd string, args ...interface{}) (*ResultSet, error) 
 		m := monitoring.BeginMeasuring(identifier.Identifier("redis", "command", cmd))
 		defer m.EndMeasuring()
 	}
-	result, err := conn.command(cmd, args...)
+	if strings.Contains(cmd, "subscribe") {
+		return nil, errors.New(ErrUseSubscription, errorMessages)
+	}
+	err := conn.resp.sendCommand(cmd, args...)
+	if err != nil {
+		return nil, err
+	}
+	result, err := conn.resp.receiveResultSet()
 	logCommand(cmd, args, result, err, conn.database.logging)
 	return result, err
 }
@@ -179,6 +186,7 @@ func (conn *Connection) Return() error {
 // authenticate authenticates against the server if configured.
 func (conn *Connection) authenticate() error {
 	if conn.database.password != "" {
+		// TODO: Better error handling.
 		_, err := conn.Do("auth", conn.database.password)
 		if err != nil {
 			return err
@@ -189,54 +197,12 @@ func (conn *Connection) authenticate() error {
 
 // selectDatabase selects the database.
 func (conn *Connection) selectDatabase() error {
+	// TODO: Better error handling.
 	_, err := conn.Do("select", conn.database.index)
 	if err != nil {
 		return err
 	}
 	return nil
-}
-
-// command sends a command to the server, receives all responses,
-// and converts them into a result set.
-func (conn *Connection) command(cmd string, args ...interface{}) (*ResultSet, error) {
-	if strings.Contains(cmd, "subscribe") {
-		return nil, errors.New(ErrUseSubscription, errorMessages)
-	}
-	err := conn.resp.send(cmd, args...)
-	if err != nil {
-		return nil, err
-	}
-	result := newResultSet()
-	current := result
-	for {
-		response := conn.resp.receive()
-		switch response.kind {
-		case receivingError:
-			return nil, response.err
-		case timeoutError:
-			return nil, errors.New(ErrTimeout, errorMessages, cmd)
-		case errorResponse:
-			return nil, errors.New(ErrServerResponse, errorMessages, response.value())
-		case statusResponse, integerResponse, bulkResponse, nullBulkResponse:
-			current.append(response.value())
-		case arrayResponse:
-			switch {
-			case current == result && current.Len() == 0:
-				current.length = response.length
-			case !current.allReceived():
-				next := newResultSet()
-				next.parent = current
-				current.append(next)
-				current = next
-				current.length = response.length
-			}
-		}
-		// Check if all values are received.
-		current = current.nextResultSet()
-		if current == nil {
-			return result, nil
-		}
-	}
 }
 
 // EOF

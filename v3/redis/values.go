@@ -17,7 +17,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tideland/goas/v2/logger"
 	"github.com/tideland/goas/v3/errors"
 )
 
@@ -359,42 +358,7 @@ func newPublishedValues() *publishedValues {
 
 // enqueue appends a result set as published value to the
 // end of the queue.
-func (pvs *publishedValues) Enqueue(result *ResultSet) error {
-	// Analyse the result.
-	kind, err := result.StringAt(0)
-	if err != nil {
-		return err
-	}
-	logger.Debugf("ENQUEUE: %v", kind)
-	pv := &PublishedValue{
-		Kind: kind,
-	}
-	switch kind {
-	case "subscribe", "psubscribe", "unsubscribe", "punsubscribe":
-		channel, err := result.StringAt(1)
-		if err != nil {
-			return err
-		}
-		count, err := result.IntAt(2)
-		if err != nil {
-			return err
-		}
-		pv.Channel = channel
-		pv.Count = count
-	case "message":
-		channel, err := result.StringAt(1)
-		if err != nil {
-			return err
-		}
-		value, err := result.ValueAt(2)
-		if err != nil {
-			return err
-		}
-		pv.Channel = channel
-		pv.Value = value
-	default:
-		return errors.New(ErrInvalidResponse, errorMessages, result)
-	}
+func (pvs *publishedValues) Enqueue(pv *PublishedValue) error {
 	// Append the published value.
 	pvs.cond.L.Lock()
 	if pvs.last == nil {

@@ -1,4 +1,4 @@
-// Tideland Go Data Management - Redis Client - RESP
+// Tideland Go Data Management - Redis Client - resp
 //
 // Copyright (C) 2009-2014 Frank Mueller / Oldenburg / Germany
 //
@@ -21,7 +21,7 @@ import (
 )
 
 //--------------------
-// RESPONSE
+// respONSE
 //--------------------
 
 // responseKind classifies a response of Redis.
@@ -71,41 +71,41 @@ func (r *response) errorValue() Value {
 // String creates a string representation of the response.
 func (r *response) String() string {
 	descr := responseKindDescr[r.kind]
-	return fmt.Sprintf("RESPONSE (Kind: %s / Length: %d / Value: %v / Error: %v)", descr, r.length, r.value(), r.err)
+	return fmt.Sprintf("respONSE (Kind: %s / Length: %d / Value: %v / Error: %v)", descr, r.length, r.value(), r.err)
 }
 
 //--------------------
 // REDIS SERIALIZATION PROTOCOL
 //--------------------
 
-// RESP implements the Redis Serialization Protocol.
-type RESP struct {
+// resp implements the Redis Serialization Protocol.
+type resp struct {
 	database *Database
 	conn     net.Conn
 	writer   *bufio.Writer
 	reader   *bufio.Reader
 }
 
-// newRESP establishes a connection to a Redis database
+// newresp establishes a connection to a Redis database
 // based on the configuration of the passed database
 // configuration.
-func newRESP(db *Database) (*RESP, error) {
+func newresp(db *Database) (*resp, error) {
 	// Dial the database and create the protocol instance.
 	conn, err := net.DialTimeout(db.network, db.address, db.timeout)
 	if err != nil {
 		return nil, errors.Annotate(err, ErrConnectionEstablishing, errorMessages)
 	}
-	resp := &RESP{
+	r := &resp{
 		database: db,
 		conn:     conn,
 		writer:   bufio.NewWriter(conn),
 		reader:   bufio.NewReader(conn),
 	}
-	return resp, nil
+	return r, nil
 }
 
-// send sends a command and possible arguments to the server.
-func (r *RESP) send(cmd string, args ...interface{}) error {
+// sendCommand sends a command and possible arguments to the server.
+func (r *resp) sendCommand(cmd string, args ...interface{}) error {
 	lengthPart := r.buildLengthPart(args)
 	cmdPart := r.buildValuePart(cmd)
 	argsPart := r.buildArgumentsPart(args)
@@ -118,8 +118,8 @@ func (r *RESP) send(cmd string, args ...interface{}) error {
 	return r.writer.Flush()
 }
 
-// receive retrieves a response from the server.
-func (r *RESP) receive() *response {
+// receiveResponse retrieves a response from the server.
+func (r *resp) receiveResponse() *response {
 	// Receive first line.
 	line, err := r.reader.ReadBytes('\n')
 	if err != nil {
@@ -174,8 +174,44 @@ func (r *RESP) receive() *response {
 	return &response{receivingError, 0, nil, errors.New(ErrInvalidResponse, errorMessages, string(line))}
 }
 
+// command sends a command to the server, receives all responses,
+// and converts them into a result set.
+func (r *resp) receiveResultSet() (*ResultSet, error) {
+	result := newResultSet()
+	current := result
+	for {
+		response := r.receiveResponse()
+		switch response.kind {
+		case receivingError:
+			return nil, response.err
+		case timeoutError:
+			return nil, errors.New(ErrTimeout, errorMessages)
+		case errorResponse:
+			return nil, errors.New(ErrServerResponse, errorMessages, response.value())
+		case statusResponse, integerResponse, bulkResponse, nullBulkResponse:
+			current.append(response.value())
+		case arrayResponse:
+			switch {
+			case current == result && current.Len() == 0:
+				current.length = response.length
+			case !current.allReceived():
+				next := newResultSet()
+				next.parent = current
+				current.append(next)
+				current = next
+				current.length = response.length
+			}
+		}
+		// Check if all values are received.
+		current = current.nextResultSet()
+		if current == nil {
+			return result, nil
+		}
+	}
+}
+
 // buildLengthPart creates the length part of a command.
-func (r *RESP) buildLengthPart(args []interface{}) []byte {
+func (r *resp) buildLengthPart(args []interface{}) []byte {
 	length := 1
 	for _, arg := range args {
 		switch typedArg := arg.(type) {
@@ -193,7 +229,7 @@ func (r *RESP) buildLengthPart(args []interface{}) []byte {
 }
 
 // buildValuePart creates one value part of a command.
-func (r *RESP) buildValuePart(value interface{}) []byte {
+func (r *resp) buildValuePart(value interface{}) []byte {
 	var raw []byte
 	if v, ok := value.(Value); ok {
 		raw = []byte(v)
@@ -204,7 +240,7 @@ func (r *RESP) buildValuePart(value interface{}) []byte {
 }
 
 // buildArgumentsPart creates the the arguments parts of a command.
-func (r *RESP) buildArgumentsPart(args []interface{}) []byte {
+func (r *resp) buildArgumentsPart(args []interface{}) []byte {
 	buildValuesPart := func(vs valuer) []byte {
 		tmp := []byte{}
 		for _, value := range vs.Values() {
@@ -239,7 +275,7 @@ func (r *RESP) buildArgumentsPart(args []interface{}) []byte {
 }
 
 // close ends the connection to Redis.
-func (r *RESP) close() error {
+func (r *resp) close() error {
 	return r.conn.Close()
 }
 
