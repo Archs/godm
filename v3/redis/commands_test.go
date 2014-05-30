@@ -377,7 +377,29 @@ func TestTransaction(t *testing.T) {
 	valueH, err := conn.DoInt("get", "tx:h")
 	assert.Nil(err)
 	assert.Equal(valueH, 99)
+}
 
+func TestScripting(t *testing.T) {
+	assert := asserts.NewTestingAssertion(t, true)
+	conn, restore := connectDatabase(assert)
+	defer restore()
+
+	script := "return {KEYS[1],KEYS[2],ARGV[1],ARGV[2]}"
+	result, err := conn.Do("eval", script, 2, "key1", "key2", 1, "two")
+	assert.Nil(err)
+	assert.Length(result, 4)
+	key1, err := result.StringAt(0)
+	assert.Nil(err)
+	assert.Equal(key1, "key1")
+	key2, err := result.StringAt(1)
+	assert.Nil(err)
+	assert.Equal(key2, "key2")
+	argv1, err := result.IntAt(2)
+	assert.Nil(err)
+	assert.Equal(argv1, 1)
+	argv2, err := result.StringAt(3)
+	assert.Nil(err)
+	assert.Equal(argv2, "two")
 }
 
 func TestPubSub(t *testing.T) {
