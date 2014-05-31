@@ -1,8 +1,6 @@
-Tideland Go Data Management
-===========================
+# Tideland Go Data Management
 
-Description
------------
+## Description
 
 The *Tideland Go Data Management* (GODM) is a number of package for the
 management and processing of data:
@@ -19,21 +17,20 @@ management and processing of data:
   data can be written only once but read multiple times concurrently
   by different goroutines.
 
-Installation
-------------
+## Installation
 
     go get github.com/tideland/godm/v2/cache
     go get github.com/tideland/godm/v2/mapreduce
     go get github.com/tideland/godm/v2/numerics
     go get github.com/tideland/godm/v2/redis
+    go get github.com/tideland/godm/v3/redis
     go get github.com/tideland/godm/v2/sml
     go get github.com/tideland/godm/v2/sort
     go get github.com/tideland/godm/v2/worm
 
-Usage
------
+## Usage
 
-**Cache**
+### Cache
 
 The cache package provides a caching for individual lazy loaded values.
 An own retrieval function and a time to live (ttl) for the cached value
@@ -41,7 +38,7 @@ have to be passed. It will be retrieved with the first access to the
 value and will be removed if the ttl has been exceeded. The next access
 will retrieve it again.
 
-**Map/Reduce**
+### Map/Reduce
 
 Map/Reduce is an algorithm for the processing and aggregating mass data.
 A type implementing the `MapReducer` interface has to be implemented and
@@ -49,13 +46,15 @@ passed to the `MapReduce()` function. The type is responsible for the
 input, the mapping, the reducing and the consuming while the package
 provides the runtime environment for it.
 
-**Numerics**
+### Numerics
 
 Numerics is a mathematical package with points and vectors as types and
 functions for the evaluation of polynomal, cubic spline and least squares
 functions.
 
-**Redis Client**
+### Redis Client
+
+#### Version 2
 
 A database connection is established with
 
@@ -76,6 +75,47 @@ redis.Hash or the interface redis.Hashable in the documentation.
 Other functions support the execution of multi-commands, subscriptions
 and publishings.
 
+#### Version 3
+
+In version 3 the opening of a database changed to
+
+    db, err := redis.Open(optionA, optionB)
+
+Those options are functions to set the kind of connection, select the
+database index and the password, and more. A connection can be retrieved
+with
+
+    conn, err := db.Connection()
+
+and later be returned with
+
+    conn.Return()
+
+Now commands can be executed with
+
+    rs, err := conn.Do("set", "foo", 4711)
+
+`rs` still is a result set, but now more powerful. Additionally standard
+use cases can be done with
+
+    b, err := conn.DoBool(...)
+    i, err := conn.DoInt(...)
+    s, err := conn.DoString(...)
+    v, err := conn.DoValue(...)
+
+Additionally subscriptions can be established with
+
+    sub, err := db.Subscription()
+    err := sub.Subscribe("foo", "bar", "baz*")
+
+and published messages retrieved with
+
+    pv := sub.Pop()
+
+The subscription can be finshed with
+
+    sub.Close()
+
 ### Simple Markup Language
 
 The simple markup language is a LISP like language looking like this:
@@ -94,13 +134,13 @@ documents. When writing a document a context has to be created where
 different processors for individual tags can be registered. SML and XML
 writer processors are included.
 
-**Sort**
+### Sort
 
 Sort takes instances implementing the Go `sort.Interface` interface. A call
 of `sort.Sort(mySortable)` works like the Go sort and sorts the instance
 using a parallel working quicksrt.
 
-**Write-once / Read-multiple**
+### Write-once / Read-multiple
 
 The WORM package contains several types to store ints and strings in lists,
 sets and maps as well as bools in maps. Once a type is constructed with an
@@ -111,24 +151,22 @@ All types provide several methods for accessing, testing and exporting.
 
 And now have fun. ;)
 
-Documentation
--------------
+## Documentation
 
 - http://godoc.org/github.com/tideland/godm/v2/cache
 - http://godoc.org/github.com/tideland/godm/v2/mapreduce
 - http://godoc.org/github.com/tideland/godm/v2/numerics
 - http://godoc.org/github.com/tideland/godm/v2/redis
+- http://godoc.org/github.com/tideland/godm/v3/redis
 - http://godoc.org/github.com/tideland/godm/v2/sml
 - http://godoc.org/github.com/tideland/godm/v2/sort
 - http://godoc.org/github.com/tideland/godm/v2/worm
 
-Authors
--------
+## Authors
 
 - Frank Mueller - <mue@tideland.biz>
 - Alex Browne - <stephenalexbrowne@gmail.com> (Redis Unix socket)
 
-License
--------
+## License
 
 *Tideland Go Data Management* is distributed under the terms of the BSD 3-Clause license.
