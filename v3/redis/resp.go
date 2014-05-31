@@ -274,6 +274,48 @@ func (r *resp) buildArgumentsPart(args []interface{}) []byte {
 	return tmp
 }
 
+// authenticate authenticates against the server if configured.
+func (r *resp) authenticate() error {
+	if r.database.password != "" {
+		err := r.sendCommand("auth", r.database.password)
+		if err != nil {
+			return errors.Annotate(err, ErrAuthenticate, errorMessages)
+		}
+		result, err := r.receiveResultSet()
+		if err != nil {
+			return errors.Annotate(err, ErrAuthenticate, errorMessages)
+		}
+		value, err := result.ValueAt(0)
+		if err != nil {
+			return errors.Annotate(err, ErrAuthenticate, errorMessages)
+		}
+		if !value.IsOK() {
+			return errors.New(ErrAuthenticate, errorMessages)
+		}
+	}
+	return nil
+}
+
+// selectDatabase selects the database.
+func (r *resp) selectDatabase() error {
+	err := r.sendCommand("select", r.database.index)
+	if err != nil {
+		return errors.Annotate(err, ErrSelectDatabase, errorMessages)
+	}
+	result, err := r.receiveResultSet()
+	if err != nil {
+		return errors.Annotate(err, ErrSelectDatabase, errorMessages)
+	}
+	value, err := result.ValueAt(0)
+	if err != nil {
+		return errors.Annotate(err, ErrSelectDatabase, errorMessages)
+	}
+	if !value.IsOK() {
+		return errors.New(ErrSelectDatabase, errorMessages)
+	}
+	return nil
+}
+
 // close ends the connection to Redis.
 func (r *resp) close() error {
 	return r.conn.Close()

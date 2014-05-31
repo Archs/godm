@@ -38,6 +38,12 @@ func newSubscription(db *Database, r *resp) (*Subscription, error) {
 		resp:        r,
 		publishings: newPublishedValues(),
 	}
+	// Perform authentication and database selection.
+	err := sub.resp.authenticate()
+	if err != nil {
+		sub.database.pool.kill(r)
+		return nil, err
+	}
 	sub.loop = loop.Go(sub.backendLoop)
 	return sub, nil
 }

@@ -36,12 +36,12 @@ func newConnection(db *Database, r *resp) (*Connection, error) {
 		resp:     r,
 	}
 	// Perform authentication and database selection.
-	err := conn.authenticate()
+	err := conn.resp.authenticate()
 	if err != nil {
 		conn.database.pool.kill(r)
 		return nil, err
 	}
-	err = conn.selectDatabase()
+	err = conn.resp.selectDatabase()
 	if err != nil {
 		conn.database.pool.kill(r)
 		return nil, err
@@ -181,28 +181,6 @@ func (conn *Connection) DoScan(cmd string, args ...interface{}) (int, *ResultSet
 // Return passes the connection back into the database pool.
 func (conn *Connection) Return() error {
 	return conn.database.pool.push(conn.resp)
-}
-
-// authenticate authenticates against the server if configured.
-func (conn *Connection) authenticate() error {
-	if conn.database.password != "" {
-		// TODO: Better error handling.
-		_, err := conn.Do("auth", conn.database.password)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// selectDatabase selects the database.
-func (conn *Connection) selectDatabase() error {
-	// TODO: Better error handling.
-	_, err := conn.Do("select", conn.database.index)
-	if err != nil {
-		return err
-	}
-	return nil
 }
 
 // EOF
