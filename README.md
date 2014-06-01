@@ -102,6 +102,7 @@ use cases can be done with
     i, err := conn.DoInt(...)
     s, err := conn.DoString(...)
     v, err := conn.DoValue(...)
+    ...
 
 Additionally subscriptions can be established with
 
@@ -115,6 +116,9 @@ and published messages retrieved with
 The subscription can be finshed with
 
     sub.Close()
+
+The operations are implemented so that each connection or subscription
+can be used concurrently.
 
 ### Simple Markup Language
 

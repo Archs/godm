@@ -14,10 +14,14 @@
 // connection provides a Do() method to execute any command. It returns
 // a result set with helpers to access the returned values and convert
 // them into Go types. For typical returnings there are DoXxx() methods.
-// Additionally a subscription can be retrieved with db.Subscription().
-// Here channels can be subscribed or unsubscribed and retrieved using
-// a channel. If it's not needed anymore the subscription can be closed
-// using sub.Close().
+//
+// All Do() methods work atomically and are able to run all commands
+// except subscriptions. Also the execution of scripts is possible that
+// way. Due to the nature of the subscription the client provides an
+// own type which can be retrieved with db.Subscription(). Here channels,
+// in the sense of the Redis Pub/Sub, can be subscribed or unsubscribed.
+// Published values can be retrieved with sub.Pop(). If the subscription
+// is not needed anymore it can be closed using sub.Close().
 package redis
 
 // EOF
