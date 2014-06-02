@@ -78,7 +78,7 @@ func (p *pool) pull(forced bool) (*resp, error) {
 	// No connection available, so create a new one if not all
 	// in use or the creation is forced.
 	if len(p.inUse) < p.database.poolsize || forced {
-		resp, err := newresp(p.database)
+		resp, err := newResp(p.database)
 		if err != nil {
 			return nil, err
 		}

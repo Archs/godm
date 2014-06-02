@@ -400,6 +400,20 @@ func TestScripting(t *testing.T) {
 	argv2, err := result.StringAt(3)
 	assert.Nil(err)
 	assert.Equal(argv2, "two")
+
+	script = "return {redis.error_reply('x'), 'x', redis.status_reply('x')}"
+	result, err = conn.Do("eval", script, 0)
+	assert.Nil(err)
+	assert.Length(result, 3)
+	reply1, err := result.StringAt(0)
+	assert.Nil(err)
+	assert.Equal(reply1, "-x")
+	reply2, err := result.StringAt(1)
+	assert.Nil(err)
+	assert.Equal(reply2, "x")
+	reply3, err := result.StringAt(2)
+	assert.Nil(err)
+	assert.Equal(reply3, "+x")
 }
 
 func TestPubSub(t *testing.T) {
@@ -411,24 +425,26 @@ func TestPubSub(t *testing.T) {
 
 	err := sub.Subscribe("pubsub")
 	assert.Nil(err)
-	pv := sub.Pop()
+	pv, err := sub.Pop()
+	assert.Nil(err)
 	assert.Equal(pv.Kind, "subscribe")
 	assert.Equal(pv.Channel, "pubsub")
 	assert.Equal(pv.Count, 1)
 
 	go func() {
 		for i := 0; i < 10; i++ {
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(50 * time.Millisecond)
 			receivers, err := conn.DoInt("publish", "pubsub", i)
 			assert.Nil(err)
 			assert.Equal(receivers, 1)
 		}
 	}()
 
-	sleep := 25 * time.Millisecond
+	sleep := 1 * time.Millisecond
 	for i := 0; i < 10; i++ {
 		time.Sleep(sleep)
-		pv := sub.Pop()
+		pv, err := sub.Pop()
+		assert.Nil(err)
 		assert.Equal(pv.Kind, "message")
 		assert.Equal(pv.Channel, "pubsub")
 		value, err := pv.Value.Int()
