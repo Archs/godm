@@ -14,6 +14,7 @@ package redis
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 
@@ -71,7 +72,7 @@ func (r *response) errorValue() Value {
 // String creates a string representation of the response.
 func (r *response) String() string {
 	descr := responseKindDescr[r.kind]
-	return fmt.Sprintf("respONSE (Kind: %s / Length: %d / Value: %v / Error: %v)", descr, r.length, r.value(), r.err)
+	return fmt.Sprintf("RESPONSE (Kind: %s / Length: %d / Value: %v / Error: %v)", descr, r.length, r.value(), r.err)
 }
 
 //--------------------
@@ -128,10 +129,10 @@ func (r *resp) receiveResponse() *response {
 	switch line[0] {
 	case '+':
 		// Status response.
-		return &response{statusResponse, 0, content, nil}
+		return &response{statusResponse, 0, line[:len(line)-2], nil}
 	case '-':
 		// Error response.
-		return &response{errorResponse, 0, content, nil}
+		return &response{errorResponse, 0, line[:len(line)-2], nil}
 	case ':':
 		// Integer response.
 		return &response{integerResponse, 0, content, nil}
@@ -148,13 +149,12 @@ func (r *resp) receiveResponse() *response {
 		// Receive the bulk data.
 		toRead := count + 2
 		buffer := make([]byte, toRead)
-		read := 0
-		for read < toRead {
-			n, err := r.reader.Read(buffer[read:])
-			if err != nil {
-				return &response{receivingError, 0, nil, err}
-			}
-			read += n
+		n, err := io.ReadFull(r.reader, buffer)
+		if err != nil {
+			return &response{receivingError, 0, nil, err}
+		}
+		if n < toRead {
+			return &response{receivingError, 0, nil, errors.New(ErrServerResponse, errorMessages)}
 		}
 		return &response{bulkResponse, 0, buffer[0:count], nil}
 	case '*':
@@ -184,9 +184,7 @@ func (r *resp) receiveResultSet() (*ResultSet, error) {
 			return nil, response.err
 		case timeoutError:
 			return nil, errors.New(ErrTimeout, errorMessages)
-		case errorResponse:
-			return nil, errors.New(ErrServerResponse, errorMessages, response.value())
-		case statusResponse, integerResponse, bulkResponse, nullBulkResponse:
+		case statusResponse, errorResponse, integerResponse, bulkResponse, nullBulkResponse:
 			current.append(response.value())
 		case arrayResponse:
 			switch {

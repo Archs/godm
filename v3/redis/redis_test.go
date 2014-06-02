@@ -33,7 +33,7 @@ func TestUnixSocketConnection(t *testing.T) {
 	assertEqualString(assert, result, 0, "Hello, World!")
 	result, err = conn.Do("ping")
 	assert.Nil(err)
-	assertEqualString(assert, result, 0, "PONG")
+	assertEqualString(assert, result, 0, "+PONG")
 }
 
 func BenchmarkUnixConnection(b *testing.B) {
@@ -44,7 +44,7 @@ func BenchmarkUnixConnection(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		result, err := conn.Do("ping")
 		assert.Nil(err)
-		assertEqualString(assert, result, 0, "PONG")
+		assertEqualString(assert, result, 0, "+PONG")
 	}
 }
 
@@ -58,7 +58,7 @@ func TestTcpConnection(t *testing.T) {
 	assertEqualString(assert, result, 0, "Hello, World!")
 	result, err = conn.Do("ping")
 	assert.Nil(err)
-	assertEqualString(assert, result, 0, "PONG")
+	assertEqualString(assert, result, 0, "+PONG")
 }
 
 func BenchmarkTcpConnection(b *testing.B) {
@@ -69,40 +69,8 @@ func BenchmarkTcpConnection(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		result, err := conn.Do("ping")
 		assert.Nil(err)
-		assertEqualString(assert, result, 0, "PONG")
+		assertEqualString(assert, result, 0, "+PONG")
 	}
-}
-
-func TestPublishedValues(t *testing.T) {
-	assert := asserts.NewTestingAssertion(t, true)
-	pvs := redis.NewPublishedValues()
-
-	pvMaker := func(kind, channel, value string) *redis.PublishedValue {
-		return &redis.PublishedValue{
-			Kind:    kind,
-			Channel: channel,
-			Value:   redis.NewValue(value),
-		}
-	}
-
-	go func() {
-		err := pvs.Enqueue(pvMaker("message", "dummy", "foo"))
-		assert.Nil(err)
-		err = pvs.Enqueue(pvMaker("message", "bummy", "bar"))
-		assert.Nil(err)
-		err = pvs.Enqueue(pvMaker("message", "yummy", "baz"))
-		assert.Nil(err)
-	}()
-
-	pv := pvs.Dequeue()
-	assert.Equal(pv.Channel, "dummy")
-	assert.Equal(pv.Value.String(), "foo")
-	pv = pvs.Dequeue()
-	assert.Equal(pv.Channel, "bummy")
-	assert.Equal(pv.Value.String(), "bar")
-	pv = pvs.Dequeue()
-	assert.Equal(pv.Channel, "yummy")
-	assert.Equal(pv.Value.String(), "baz")
 }
 
 //--------------------

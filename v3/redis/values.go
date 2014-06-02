@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/tideland/goas/v3/errors"
 )
@@ -42,12 +41,12 @@ func (v Value) String() string {
 
 // IsOK returns true if the value is the Redis OK value.
 func (v Value) IsOK() bool {
-	return v.String() == "OK"
+	return v.String() == "+OK"
 }
 
 // IsNil returns true if the value is the Redis nil value.
 func (v Value) IsNil() bool {
-	return v.String() == "(nil)"
+	return v == nil
 }
 
 // Bool return the value as bool.
@@ -337,69 +336,6 @@ type PublishedValue struct {
 	Channel string
 	Count   int
 	Value   Value
-	next    *PublishedValue
-}
-
-// publishedValues maintains a queue of published values.
-type publishedValues struct {
-	cond  *sync.Cond
-	first *PublishedValue
-	last  *PublishedValue
-}
-
-// newPublishedValues creates a queue of published values.
-func newPublishedValues() *publishedValues {
-	return &publishedValues{
-		cond:  sync.NewCond(new(sync.Mutex)),
-		first: nil,
-		last:  nil,
-	}
-}
-
-// enqueue appends a result set as published value to the
-// end of the queue.
-func (pvs *publishedValues) Enqueue(pv *PublishedValue) error {
-	// Append the published value.
-	pvs.cond.L.Lock()
-	if pvs.last == nil {
-		pvs.last = pv
-		pvs.first = pv
-	} else {
-		pvs.last.next = pv
-		pvs.last = pv
-	}
-	pvs.cond.Signal()
-	pvs.cond.L.Unlock()
-	return nil
-}
-
-// dequeue returns the first published value of the queue. It
-// blocks until it is signalled. In case the queue is closed
-// nil will be returned.
-func (pvs *publishedValues) Dequeue() *PublishedValue {
-	pvs.cond.L.Lock()
-	for pvs.first == nil {
-		pvs.cond.Wait()
-	}
-	pv := pvs.first
-	if pv != nil {
-		pvs.first = pv.next
-	}
-	if pvs.first == nil {
-		pvs.last = nil
-	}
-	pvs.cond.L.Unlock()
-	return pv
-}
-
-// close closes the queue. The internal signal releases a potential
-// waiting consumer.
-func (pvs *publishedValues) Close() {
-	pvs.cond.L.Lock()
-	pvs.first = nil
-	pvs.last = nil
-	pvs.cond.Signal()
-	pvs.cond.L.Unlock()
 }
 
 // EOF

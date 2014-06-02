@@ -14,7 +14,6 @@ package redis
 import (
 	"strings"
 
-	"github.com/tideland/goas/v2/loop"
 	"github.com/tideland/goas/v3/errors"
 )
 
@@ -25,18 +24,15 @@ import (
 // Subscription manages a subscription to Redis channels and allows
 // to subscribe and unsubscribe from channels.
 type Subscription struct {
-	database    *Database
-	resp        *resp
-	publishings *publishedValues
-	loop        loop.Loop
+	database *Database
+	resp     *resp
 }
 
 // newSubscription creates a new subscription.
 func newSubscription(db *Database, r *resp) (*Subscription, error) {
 	sub := &Subscription{
-		database:    db,
-		resp:        r,
-		publishings: newPublishedValues(),
+		database: db,
+		resp:     r,
 	}
 	// Perform authentication and database selection.
 	err := sub.resp.authenticate()
@@ -44,7 +40,6 @@ func newSubscription(db *Database, r *resp) (*Subscription, error) {
 		sub.database.pool.kill(r)
 		return nil, err
 	}
-	sub.loop = loop.Go(sub.backendLoop)
 	return sub, nil
 }
 
@@ -75,41 +70,11 @@ func (s *Subscription) subUnsub(cmd string, channels ...string) error {
 }
 
 // Pop waits for a published value and returns it.
-func (s *Subscription) Pop() *PublishedValue {
-	return s.publishings.Dequeue()
-}
-
-// Close ends the subscription.
-func (s *Subscription) Close() error {
-	s.resp.sendCommand("punsubscribe")
-	s.loop.Stop()
-	s.publishings.Close()
-	return s.database.pool.push(s.resp)
-}
-
-// backendLoop receives the responses of the server and
-// adds them to the published values.
-func (s *Subscription) backendLoop(loop loop.Loop) error {
-	for {
-		select {
-		case <-s.loop.ShallStop():
-			return nil
-		default:
-			pv, err := s.receivePublishedValue()
-			if err != nil {
-				return err
-			}
-			err = s.publishings.Enqueue(pv)
-			if err != nil {
-				return err
-			}
-		}
-	}
-}
-
-// receivePublishedValue
-func (s *Subscription) receivePublishedValue() (*PublishedValue, error) {
+func (s *Subscription) Pop() (*PublishedValue, error) {
 	result, err := s.resp.receiveResultSet()
+	if err != nil {
+		return nil, err
+	}
 	// Analyse the result.
 	kind, err := result.StringAt(0)
 	if err != nil {
@@ -147,6 +112,25 @@ func (s *Subscription) receivePublishedValue() (*PublishedValue, error) {
 	default:
 		return nil, errors.New(ErrInvalidResponse, errorMessages, result)
 	}
+}
+
+// Close ends the subscription.
+func (s *Subscription) Close() error {
+	err := s.resp.sendCommand("punsubscribe")
+	if err != nil {
+		return err
+	}
+	for {
+		pv, err := s.Pop()
+		if err != nil {
+			return err
+		}
+		if pv.Kind == "punsubscribe" {
+			break
+		}
+	}
+	s.database.pool.push(s.resp)
+	return nil
 }
 
 // EOF
