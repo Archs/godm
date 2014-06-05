@@ -29,32 +29,39 @@ type Subscription struct {
 }
 
 // newSubscription creates a new subscription.
-func newSubscription(db *Database, r *resp) (*Subscription, error) {
+func newSubscription(db *Database) (*Subscription, error) {
 	sub := &Subscription{
 		database: db,
-		resp:     r,
+	}
+	err := sub.ensureProtocol()
+	if err != nil {
+		return nil, err
 	}
 	// Perform authentication and database selection.
-	err := sub.resp.authenticate()
+	err = sub.resp.authenticate()
 	if err != nil {
-		sub.database.pool.kill(r)
+		sub.database.pool.kill(sub.resp)
 		return nil, err
 	}
 	return sub, nil
 }
 
 // Subscribe adds one or more channels to the subscription.
-func (s *Subscription) Subscribe(channels ...string) error {
-	return s.subUnsub("subscribe", channels...)
+func (sub *Subscription) Subscribe(channels ...string) error {
+	return sub.subUnsub("subscribe", channels...)
 }
 
 // Unsubscribe removes one or more channels from the subscription.
-func (s *Subscription) Unsubscribe(channels ...string) error {
-	return s.subUnsub("unsubscribe", channels...)
+func (sub *Subscription) Unsubscribe(channels ...string) error {
+	return sub.subUnsub("unsubscribe", channels...)
 }
 
 // subUnsub is the generic subscription and unsubscription method.
-func (s *Subscription) subUnsub(cmd string, channels ...string) error {
+func (sub *Subscription) subUnsub(cmd string, channels ...string) error {
+	err := sub.ensureProtocol()
+	if err != nil {
+		return err
+	}
 	pattern := false
 	args := []interface{}{}
 	for _, channel := range channels {
@@ -66,12 +73,18 @@ func (s *Subscription) subUnsub(cmd string, channels ...string) error {
 	if pattern {
 		cmd = "p" + cmd
 	}
-	return s.resp.sendCommand(cmd, args...)
+	err = sub.resp.sendCommand(cmd, args...)
+	logCommand(cmd, args, err, sub.database.logging)
+	return err
 }
 
 // Pop waits for a published value and returns it.
-func (s *Subscription) Pop() (*PublishedValue, error) {
-	result, err := s.resp.receiveResultSet()
+func (sub *Subscription) Pop() (*PublishedValue, error) {
+	err := sub.ensureProtocol()
+	if err != nil {
+		return nil, err
+	}
+	result, err := sub.resp.receiveResultSet()
 	if err != nil {
 		return nil, err
 	}
@@ -115,13 +128,17 @@ func (s *Subscription) Pop() (*PublishedValue, error) {
 }
 
 // Close ends the subscription.
-func (s *Subscription) Close() error {
-	err := s.resp.sendCommand("punsubscribe")
+func (sub *Subscription) Close() error {
+	err := sub.ensureProtocol()
+	if err != nil {
+		return err
+	}
+	err = sub.resp.sendCommand("punsubscribe")
 	if err != nil {
 		return err
 	}
 	for {
-		pv, err := s.Pop()
+		pv, err := sub.Pop()
 		if err != nil {
 			return err
 		}
@@ -129,7 +146,19 @@ func (s *Subscription) Close() error {
 			break
 		}
 	}
-	s.database.pool.push(s.resp)
+	sub.database.pool.push(sub.resp)
+	return nil
+}
+
+// ensureProtocol retrieves a protocol from the pool if needed.
+func (sub *Subscription) ensureProtocol() error {
+	if sub.resp == nil {
+		p, err := sub.database.pool.pull(true)
+		if err != nil {
+			return err
+		}
+		sub.resp = p
+	}
 	return nil
 }
 

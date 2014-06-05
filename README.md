@@ -104,7 +104,17 @@ use cases can be done with
     v, err := conn.DoValue(...)
     ...
 
-Additionally subscriptions can be established with
+Commands can also be pipelined using
+
+    ppl, err := db.Pipeline()
+    ppl.Do(...)
+    ppl.Do(...)
+    ppl.Do(...)
+    ppl.Do(...)
+    results, err := ppl.Collect()
+
+Here `results` is a slice of result sets with the returned values
+of all pipelined command. Additionally subscriptions can be established with
 
     sub, err := db.Subscription()
     err := sub.Subscribe("foo", "bar", "baz*")

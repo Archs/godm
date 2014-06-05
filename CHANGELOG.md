@@ -1,8 +1,12 @@
 # Tideland Go Data Management
 
+## 2014-06-05
+
+- Added pipelining to version 3 of the Redis client
+
 ## 2014-05-31
 
-- Added version 3 of the Redis Client
+- Added version 3 of the Redis client
     - Fixed several smaller design errors regarding the result set
     - Added some convenience methods to the result set
     - Changed the concept of retrieving and returning a connection

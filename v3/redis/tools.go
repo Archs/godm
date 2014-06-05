@@ -126,27 +126,24 @@ func containsPattern(channel interface{}) bool {
 }
 
 // logCommand logs a command and its execution status.
-func logCommand(cmd string, args []interface{}, result *ResultSet, err error, log bool) {
+func logCommand(cmd string, args []interface{}, err error, log bool) {
 	// Format the command for the log entry.
 	formatArgs := func() string {
+		if args == nil || len(args) == 0 {
+			return "(none)"
+		}
 		output := make([]string, len(args))
 		for i, arg := range args {
 			output[i] = string(valueToBytes(arg))
 		}
 		return strings.Join(output, " / ")
 	}
-	formatResults := func() string {
-		if result == nil {
-			return "none"
-		}
-		return result.String()
-	}
 	logOutput := func() string {
-		format := "CMD %s ARGS %s %s %v"
+		format := "CMD %s ARGS %s %s"
 		if err == nil {
-			return fmt.Sprintf(format, cmd, formatArgs(), "OK", formatResults())
+			return fmt.Sprintf(format, cmd, formatArgs(), "OK")
 		}
-		return fmt.Sprintf(format, cmd, formatArgs(), "ERROR", err)
+		return fmt.Sprintf(format, cmd, formatArgs(), "ERROR "+err.Error())
 	}
 	// Log positive commands only if wanted, errors always.
 	if err != nil {

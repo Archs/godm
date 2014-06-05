@@ -30,20 +30,26 @@ type Connection struct {
 }
 
 // newConnection creates a new connection instance.
-func newConnection(db *Database, r *resp) (*Connection, error) {
+func newConnection(db *Database) (*Connection, error) {
 	conn := &Connection{
 		database: db,
-		resp:     r,
+	}
+	err := conn.ensureProtocol()
+	if err != nil {
+		return nil, err
 	}
 	// Perform authentication and database selection.
-	err := conn.resp.authenticate()
 	if err != nil {
-		conn.database.pool.kill(r)
+		return nil, err
+	}
+	err = conn.resp.authenticate()
+	if err != nil {
+		conn.database.pool.kill(conn.resp)
 		return nil, err
 	}
 	err = conn.resp.selectDatabase()
 	if err != nil {
-		conn.database.pool.kill(r)
+		conn.database.pool.kill(conn.resp)
 		return nil, err
 	}
 	return conn, nil
@@ -53,19 +59,23 @@ func newConnection(db *Database, r *resp) (*Connection, error) {
 // the result as result set.
 func (conn *Connection) Do(cmd string, args ...interface{}) (*ResultSet, error) {
 	cmd = strings.ToLower(cmd)
+	if strings.Contains(cmd, "subscribe") {
+		return nil, errors.New(ErrUseSubscription, errorMessages)
+	}
+	err := conn.ensureProtocol()
+	if err != nil {
+		return nil, err
+	}
 	if conn.database.monitoring {
 		m := monitoring.BeginMeasuring(identifier.Identifier("redis", "command", cmd))
 		defer m.EndMeasuring()
 	}
-	if strings.Contains(cmd, "subscribe") {
-		return nil, errors.New(ErrUseSubscription, errorMessages)
-	}
-	err := conn.resp.sendCommand(cmd, args...)
+	err = conn.resp.sendCommand(cmd, args...)
+	logCommand(cmd, args, err, conn.database.logging)
 	if err != nil {
 		return nil, err
 	}
 	result, err := conn.resp.receiveResultSet()
-	logCommand(cmd, args, result, err, conn.database.logging)
 	return result, err
 }
 
@@ -180,7 +190,21 @@ func (conn *Connection) DoScan(cmd string, args ...interface{}) (int, *ResultSet
 
 // Return passes the connection back into the database pool.
 func (conn *Connection) Return() error {
-	return conn.database.pool.push(conn.resp)
+	err := conn.database.pool.push(conn.resp)
+	conn.resp = nil
+	return err
+}
+
+// ensureProtocol retrieves a protocol from the pool if needed.
+func (conn *Connection) ensureProtocol() error {
+	if conn.resp == nil {
+		p, err := conn.database.pool.pull(true)
+		if err != nil {
+			return err
+		}
+		conn.resp = p
+	}
+	return nil
 }
 
 // EOF
