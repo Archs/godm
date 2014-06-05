@@ -61,11 +61,16 @@ func Open(options ...Option) (*Database, error) {
 func (db *Database) Connection() (*Connection, error) {
 	db.mux.Lock()
 	defer db.mux.Unlock()
-	resp, err := db.pool.pull(unforcedPull)
-	if err != nil {
-		return nil, err
-	}
-	return newConnection(db, resp)
+	return newConnection(db)
+}
+
+// Pipeline returns one of the pooled connections to the Redis
+// server running in pipeline mode. Calling ppl.Collect()
+// collects all results and returns the connection.
+func (db *Database) Pipeline() (*Pipeline, error) {
+	db.mux.Lock()
+	defer db.mux.Unlock()
+	return newPipeline(db)
 }
 
 // Subscription returns a subscription with a connection to the
@@ -73,11 +78,7 @@ func (db *Database) Connection() (*Connection, error) {
 func (db *Database) Subscription() (*Subscription, error) {
 	db.mux.Lock()
 	defer db.mux.Unlock()
-	resp, err := db.pool.pull(unforcedPull)
-	if err != nil {
-		return nil, err
-	}
-	return newSubscription(db, resp)
+	return newSubscription(db)
 }
 
 // Close closes the database client.

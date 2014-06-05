@@ -73,6 +73,43 @@ func BenchmarkTcpConnection(b *testing.B) {
 	}
 }
 
+func TestPipelining(t *testing.T) {
+	assert := asserts.NewTestingAssertion(t, true)
+	ppl, restore := pipelineDatabase(assert)
+	defer restore()
+
+	for i := 0; i < 1000; i++ {
+		err := ppl.Do("ping")
+		assert.Nil(err)
+	}
+
+	results, err := ppl.Collect()
+	assert.Nil(err)
+	assert.Length(results, 1000)
+
+	for _, result := range results {
+		assertEqualString(assert, result, 0, "+PONG")
+	}
+}
+
+func BenchmarkPipelining(b *testing.B) {
+	assert := asserts.NewTestingAssertion(b, true)
+	ppl, restore := pipelineDatabase(assert)
+	defer restore()
+
+	for i := 0; i < b.N; i++ {
+		err := ppl.Do("ping")
+		assert.Nil(err)
+	}
+	results, err := ppl.Collect()
+	assert.Nil(err)
+	assert.Length(results, b.N)
+
+	for _, result := range results {
+		assertEqualString(assert, result, 0, "+PONG")
+	}
+}
+
 //--------------------
 // TOOLS
 //--------------------
@@ -105,6 +142,22 @@ func connectDatabase(assert asserts.Assertion, options ...redis.Option) (*redis.
 	}
 }
 
+// pipelineDatabase connects to a Redis database with the given options
+// and returns a pipeling and a function for closing. This function
+// shall be called with a defer.
+func pipelineDatabase(assert asserts.Assertion, options ...redis.Option) (*redis.Pipeline, func()) {
+	// Open and connect database.
+	options = append(options, redis.Index(testDatabaseIndex, ""))
+	db, err := redis.Open(options...)
+	assert.Nil(err)
+	ppl, err := db.Pipeline()
+	assert.Nil(err)
+	// Return pipeline and cleanup function.
+	return ppl, func() {
+		db.Close()
+	}
+}
+
 // subscribeDatabase connects to a Redis database with the given options
 // and returns a subscription and a function for closing. This function
 // shall be called with a defer.
@@ -115,7 +168,7 @@ func subscribeDatabase(assert asserts.Assertion, options ...redis.Option) (*redi
 	assert.Nil(err)
 	sub, err := db.Subscription()
 	assert.Nil(err)
-	// Return connection and cleanup function.
+	// Return subscription and cleanup function.
 	return sub, func() {
 		sub.Close()
 		db.Close()

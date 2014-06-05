@@ -326,7 +326,7 @@ func TestZScan(t *testing.T) {
 	assert.Equal(valueCount, 26*26)
 }
 
-func TestTransaction(t *testing.T) {
+func TestTransactionConnection(t *testing.T) {
 	assert := asserts.NewTestingAssertion(t, true)
 	conn, restore := connectDatabase(assert)
 	defer restore()
@@ -363,16 +363,73 @@ func TestTransaction(t *testing.T) {
 		defer restore()
 		<-sig
 		asyncConn.Do("set", "tx:h", 99)
+		sig <- struct{}{}
 	}()
 	conn.Do("watch", "tx:h")
 	ok, err = conn.DoOK("multi")
 	assert.Nil(err)
 	assert.True(ok)
 	conn.Do("set", "tx:g", 4)
-	sig <- struct{}{}
 	conn.Do("set", "tx:h", 5)
+	sig <- struct{}{}
 	conn.Do("set", "tx:i", 6)
+	<-sig
 	_, err = conn.Do("exec")
+	assert.True(errors.IsError(err, redis.ErrTimeout))
+	valueH, err := conn.DoInt("get", "tx:h")
+	assert.Nil(err)
+	assert.Equal(valueH, 99)
+}
+
+func TestTransactionPipeline(t *testing.T) {
+	assert := asserts.NewTestingAssertion(t, true)
+	conn, connRestore := connectDatabase(assert)
+	defer connRestore()
+	ppl, pplRestore := pipelineDatabase(assert)
+	defer pplRestore()
+
+	err := ppl.Do("multi")
+	assert.Nil(err)
+	ppl.Do("set", "tx:a", 1)
+	ppl.Do("set", "tx:b", 2)
+	ppl.Do("set", "tx:c", 3)
+	ppl.Do("exec")
+	results, err := ppl.Collect()
+	assert.Nil(err)
+	assert.Length(results, 5)
+	valueB, err := conn.DoInt("get", "tx:b")
+	assert.Nil(err)
+	assert.Equal(valueB, 2)
+
+	err = ppl.Do("multi")
+	assert.Nil(err)
+	ppl.Do("set", "tx:d", 4)
+	ppl.Do("set", "tx:e", 5)
+	ppl.Do("set", "tx:f", 6)
+	ppl.Do("discard")
+	results, err = ppl.Collect()
+	assert.Nil(err)
+	assert.Length(results, 5)
+	valueE, err := conn.DoValue("get", "tx:e")
+	assert.Nil(err)
+	assert.True(valueE.IsNil())
+
+	sig := make(chan struct{})
+	go func() {
+		<-sig
+		conn.Do("set", "tx:h", 99)
+		sig <- struct{}{}
+	}()
+	ppl.Do("watch", "tx:h")
+	err = ppl.Do("multi")
+	assert.Nil(err)
+	ppl.Do("set", "tx:g", 4)
+	ppl.Do("set", "tx:h", 5)
+	sig <- struct{}{}
+	ppl.Do("set", "tx:i", 6)
+	<-sig
+	ppl.Do("exec")
+	results, err = ppl.Collect()
 	assert.True(errors.IsError(err, redis.ErrTimeout))
 	valueH, err := conn.DoInt("get", "tx:h")
 	assert.Nil(err)
@@ -423,7 +480,10 @@ func TestPubSub(t *testing.T) {
 	sub, subRestore := subscribeDatabase(assert)
 	defer subRestore()
 
-	err := sub.Subscribe("pubsub")
+	_, err := conn.Do("subscribe", "pubsub")
+	assert.True(errors.IsError(err, redis.ErrUseSubscription))
+
+	err = sub.Subscribe("pubsub")
 	assert.Nil(err)
 	pv, err := sub.Pop()
 	assert.Nil(err)
